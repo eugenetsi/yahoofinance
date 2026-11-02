@@ -6,12 +6,16 @@ https://github.com/iprak/yahoofinance
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta
+from typing import Any
 
 from homeassistant.components.sensor import (
     DOMAIN as SENSOR_DOMAIN,
+)
+from homeassistant.components.sensor import (
     SensorEntity,
     SensorStateClass,
 )
+from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import ATTR_ATTRIBUTION
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.device_registry import DeviceEntryType
@@ -21,8 +25,8 @@ from homeassistant.helpers.typing import ConfigType, DiscoveryInfoType, StateTyp
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
 
-from . import convert_to_float
-from .const import (
+from custom_components.yahoofinance import convert_to_float
+from custom_components.yahoofinance.const import (
     ATTR_CURRENCY_SYMBOL,
     ATTR_MARKET_STATE,
     ATTR_QUOTE_SOURCE_NAME,
@@ -57,8 +61,8 @@ from .const import (
     TIME_PRICE_DATA_DICT,
     YAHOO_QUOTE_URL,
 )
-from .coordinator import YahooSymbolUpdateCoordinator
-from .dataclasses import SymbolDefinition
+from custom_components.yahoofinance.coordinator import YahooSymbolUpdateCoordinator
+from custom_components.yahoofinance.dataclasses import SymbolDefinition
 
 ENTITY_ID_FORMAT = SENSOR_DOMAIN + "." + DOMAIN + "_{}"
 
@@ -70,8 +74,7 @@ async def async_setup_platform(
     discovery_info: DiscoveryInfoType | None = None,
 ):
     """Set up the Yahoo Finance sensor platform."""
-
-    coordinators: dict[timedelta, YahooSymbolUpdateCoordinator] = hass.data[DOMAIN][
+    coordinators: dict[str | timedelta | None, YahooSymbolUpdateCoordinator] = hass.data[DOMAIN][
         HASS_DATA_COORDINATORS
     ]
     domain_config = hass.data[DOMAIN][HASS_DATA_CONFIG]
@@ -80,9 +83,7 @@ async def async_setup_platform(
     # We don't know the currency of a symbol so can't added conversion symbols upfront
 
     sensors = [
-        YahooFinanceSensor(
-            hass, coordinators[symbol.scan_interval], symbol, domain_config
-        )
+        YahooFinanceSensor(hass, coordinators[symbol.scan_interval], symbol, domain_config)
         for symbol in symbol_definitions
     ]
 
@@ -91,7 +92,20 @@ async def async_setup_platform(
     LOGGER.info("Entities added for %s", [item.symbol for item in symbol_definitions])
 
 
-class YahooFinanceSensor(CoordinatorEntity, SensorEntity):
+async def async_setup_entry(
+    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+) -> None:
+    """Load sensors under the imported YAML entry for device registration.
+
+    Args:
+        hass: The Home Assistant instance.
+        entry: The config entry that owns this sensor platform.
+        async_add_entities: The platform callback that adds the sensors.
+    """
+    await async_setup_platform(hass, {}, async_add_entities)
+
+
+class YahooFinanceSensor(CoordinatorEntity[YahooSymbolUpdateCoordinator], SensorEntity):
     """Represents a Yahoo finance entity."""
 
     # pylint: disable=too-many-instance-attributes
@@ -102,7 +116,7 @@ class YahooFinanceSensor(CoordinatorEntity, SensorEntity):
     _short_name: str | None = None
     _symbol: str
     _target_currency = None
-    _original_currency = None
+    _original_currency: str | None = None
     _last_available_timer = None
     _waiting_on_conversion = False
 
@@ -125,11 +139,9 @@ class YahooFinanceSensor(CoordinatorEntity, SensorEntity):
         symbol = symbol_definition.symbol
         self._symbol = symbol
         self._show_trending_icon = domain_config[CONF_SHOW_TRENDING_ICON]
-        self._show_currency_symbol_as_unit = domain_config[
-            CONF_SHOW_CURRENCY_SYMBOL_AS_UNIT
-        ]
+        self._show_currency_symbol_as_unit = domain_config[CONF_SHOW_CURRENCY_SYMBOL_AS_UNIT]
         self._decimal_places = domain_config[CONF_DECIMAL_PLACES]
-        self._previous_close = None
+        self._previous_close: float | None = None
         self._target_currency = symbol_definition.target_currency
         self._no_unit = symbol_definition.no_unit
         self._show_off_market_values = domain_config[CONF_SHOW_OFF_MARKET_VALUES]
@@ -183,16 +195,13 @@ class YahooFinanceSensor(CoordinatorEntity, SensorEntity):
     @staticmethod
     def convert_timestamp_to_datetime(date_timestamp, return_format) -> str | None:
         """Convert Epoch JSON element to datetime."""
-
         date_timestamp = convert_to_float(date_timestamp)
         if date_timestamp is None or date_timestamp == 0:
             return date_timestamp
 
-        converted_date = datetime.fromtimestamp(
-            date_timestamp, tz=dt_util.DEFAULT_TIME_ZONE
-        )
+        converted_date = datetime.fromtimestamp(date_timestamp, tz=dt_util.DEFAULT_TIME_ZONE)
         if return_format == "date":
-            converted_date = converted_date.date()
+            return converted_date.date().isoformat()
 
         return converted_date.isoformat()
 
@@ -203,7 +212,11 @@ class YahooFinanceSensor(CoordinatorEntity, SensorEntity):
 
     @property
     def device_info(self) -> DeviceInfo:
-        """Return device registry information."""
+        """Return the service-device metadata for this ticker.
+
+        Returns:
+            Stable ticker identifiers, display metadata, and the quote-page URL.
+        """
         return DeviceInfo(
             configuration_url=f"{YAHOO_QUOTE_URL}{self._symbol}",
             entry_type=DeviceEntryType.SERVICE,
@@ -246,7 +259,7 @@ class YahooFinanceSensor(CoordinatorEntity, SensorEntity):
         return currency
 
     @property
-    def icon(self) -> str:
+    def icon(self) -> str | None:
         """Return the icon to use in the frontend, if any."""
         return self._icon
 
@@ -254,9 +267,7 @@ class YahooFinanceSensor(CoordinatorEntity, SensorEntity):
     def available(self) -> bool:
         """Return if entity is available."""
         value = (
-            self._market_price is not None
-            and super().available
-            and not self._waiting_on_conversion
+            self._market_price is not None and super().available and not self._waiting_on_conversion
         )
         LOGGER.debug("%s available=%s", self._symbol, value)
         return value
@@ -279,9 +290,9 @@ class YahooFinanceSensor(CoordinatorEntity, SensorEntity):
 
         return round(value, self._decimal_places)
 
-    def _find_symbol_data(self, symbol: str) -> any | None:
+    def _find_symbol_data(self, symbol: str) -> dict[str, Any] | None:
         """Find data for the specified symbol in all coordinators."""
-        coordinators: dict[timedelta, YahooSymbolUpdateCoordinator] = self._hass.data[
+        coordinators: dict[str | timedelta | None, YahooSymbolUpdateCoordinator] = self._hass.data[
             DOMAIN
         ][HASS_DATA_COORDINATORS]
 
@@ -299,7 +310,7 @@ class YahooFinanceSensor(CoordinatorEntity, SensorEntity):
         if not symbol_data:
             return None
         if not self._show_off_market_values:
-          return symbol_data[DATA_REGULAR_MARKET_PRICE]
+            return symbol_data[DATA_REGULAR_MARKET_PRICE]
         price_time = 0
         price = None
         for t, p in TIME_PRICE_DATA_DICT.items():
@@ -331,15 +342,17 @@ class YahooFinanceSensor(CoordinatorEntity, SensorEntity):
             conversion_symbol = f"GBP{self._target_currency}=X".upper()
         else:
             value = 1
-            conversion_symbol = (
-                f"{self._original_currency}{self._target_currency}=X".upper()
-            )
+            conversion_symbol = f"{self._original_currency}{self._target_currency}=X".upper()
 
         # Locate conversion symbol in all coordinators
         symbol_data = self._find_symbol_data(conversion_symbol)
 
         if symbol_data is not None:
-            value = value * self._get_market_price(symbol_data)
+            conversion_price = self._get_market_price(symbol_data)
+            if conversion_price is None:
+                self._waiting_on_conversion = True
+                return None
+            value = value * conversion_price
             LOGGER.debug("%s %s is %s", self._symbol, conversion_symbol, value)
         else:
             LOGGER.info(
@@ -354,9 +367,8 @@ class YahooFinanceSensor(CoordinatorEntity, SensorEntity):
 
         return value
 
-    def _update_original_currency_once(self, symbol_data) -> bool:
+    def _update_original_currency_once(self, symbol_data) -> None:
         """Calculate the original currency once."""
-
         # Symbol currency does not change so calculate it only once
         if self._original_currency is not None:
             return
@@ -377,13 +389,12 @@ class YahooFinanceSensor(CoordinatorEntity, SensorEntity):
 
     def update_properties(self) -> None:
         """Update local fields. This is also used in unit testing."""
-
         data = self.coordinator.data
         if data is None:
             LOGGER.debug("%s Coordinator data is None", self._symbol)
             return
 
-        symbol_data: dict = data.get(self._symbol)
+        symbol_data: dict | None = data.get(self._symbol)
         if symbol_data is None:
             LOGGER.debug("%s Symbol data is None", self._symbol)
             return
@@ -425,30 +436,22 @@ class YahooFinanceSensor(CoordinatorEntity, SensorEntity):
             self._attr_extra_state_attributes[key] = self._round(attr_value)
 
         # Add some other string attributes
-        self._attr_extra_state_attributes[ATTR_QUOTE_TYPE] = symbol_data[
-            DATA_QUOTE_TYPE
-        ]
+        self._attr_extra_state_attributes[ATTR_QUOTE_TYPE] = symbol_data[DATA_QUOTE_TYPE]
         self._attr_extra_state_attributes[ATTR_QUOTE_SOURCE_NAME] = symbol_data[
             DATA_QUOTE_SOURCE_NAME
         ]
-        self._attr_extra_state_attributes[ATTR_MARKET_STATE] = symbol_data[
-            DATA_MARKET_STATE
-        ]
+        self._attr_extra_state_attributes[ATTR_MARKET_STATE] = symbol_data[DATA_MARKET_STATE]
 
         for key in DATE_DATA_KEYS:
             if key in self._attr_extra_state_attributes:
-                self._attr_extra_state_attributes[key] = (
-                    self.convert_timestamp_to_datetime(
-                        self._attr_extra_state_attributes[key], "date"
-                    )
+                self._attr_extra_state_attributes[key] = self.convert_timestamp_to_datetime(
+                    self._attr_extra_state_attributes[key], "date"
                 )
 
         for key in TIME_PRICE_DATA_DICT:
             if key in self._attr_extra_state_attributes:
-                self._attr_extra_state_attributes[key] = (
-                    self.convert_timestamp_to_datetime(
-                        self._attr_extra_state_attributes[key], "dateTime"
-                    )
+                self._attr_extra_state_attributes[key] = self.convert_timestamp_to_datetime(
+                    self._attr_extra_state_attributes[key], "dateTime"
                 )
 
         # Use target_currency if we have conversion data. Otherwise keep using the
@@ -458,7 +461,7 @@ class YahooFinanceSensor(CoordinatorEntity, SensorEntity):
         else:
             currency = self._original_currency
 
-        self._currency = currency.upper()
+        self._currency = (currency or DEFAULT_CURRENCY).upper()
         lower_currency = self._currency.lower()
 
         trending_state = self._calc_trending_state()
@@ -476,9 +479,7 @@ class YahooFinanceSensor(CoordinatorEntity, SensorEntity):
 
         # If this one of the known currencies, then include the correct currency symbol.
         # Don't show $ as the CurrencySymbol even if we can't get one.
-        self._attr_extra_state_attributes[ATTR_CURRENCY_SYMBOL] = CURRENCY_CODES.get(
-            lower_currency
-        )
+        self._attr_extra_state_attributes[ATTR_CURRENCY_SYMBOL] = CURRENCY_CODES.get(lower_currency)
 
     def _calc_trending_state(self) -> str | None:
         """Return the trending state for the symbol."""

@@ -1,0 +1,8 @@
+{
+  "config": {
+    "abort": {
+      "already_configured": "Yahoo Finance is already configured.",
+      "yaml_only": "Configure Yahoo Finance in configuration.yaml, then restart Home Assistant."
+    }
+  }
+}

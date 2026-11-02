@@ -4,6 +4,10 @@ import copy
 from unittest.mock import AsyncMock, MagicMock, Mock, patch
 
 import pytest
+from homeassistant.const import CONF_SCAN_INTERVAL
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.device_registry import DeviceEntryType
 
 from custom_components.yahoofinance import (
     DEFAULT_SCAN_INTERVAL,
@@ -54,14 +58,7 @@ from custom_components.yahoofinance.sensor import (
     YahooFinanceSensor,
     async_setup_platform,
 )
-from homeassistant.const import CONF_SCAN_INTERVAL
-from homeassistant.core import HomeAssistant
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.device_registry import DeviceEntryType
-
-from . import TEST_SYMBOL
-
-SESSION = async_get_clientsession
+from tests import TEST_SYMBOL
 
 DEFAULT_OPTIONAL_CONFIG = {
     CONF_DECIMAL_PLACES: DEFAULT_CONF_DECIMAL_PLACES,
@@ -94,9 +91,7 @@ def build_mock_symbol_data(
     return YahooSymbolUpdateCoordinator.parse_symbol_data(source_data)
 
 
-def build_mock_coordinator(
-    hass: HomeAssistant, last_update_success, symbol, market_price
-):
+def build_mock_coordinator(hass: HomeAssistant, last_update_success, symbol, market_price):
     """Build a mock data coordinator."""
     return Mock(
         data={symbol: build_mock_symbol_data(symbol, market_price)},
@@ -114,7 +109,6 @@ def build_mock_coordinator_for_conversion(
     target_market_price,
 ):
     """Build a mock data coordinator with conversion data."""
-
     # Mock target_symbol as done in sensor.py
     target_symbol = f"{currency}{target_currency}=X".upper()
     return Mock(
@@ -136,24 +130,19 @@ def install_coordinator(hass: HomeAssistant, coordinator) -> None:
 
 async def test_setup_platform(hass: HomeAssistant) -> None:
     """Test platform setup."""
-
     async_add_entities = MagicMock()
     mock_coordinator = build_mock_coordinator(hass, True, TEST_SYMBOL, 12)
     mock_coordinators = {DEFAULT_SCAN_INTERVAL: mock_coordinator}
 
     config = copy.deepcopy(DEFAULT_OPTIONAL_CONFIG)
-    config[CONF_SYMBOLS] = [
-        SymbolDefinition(TEST_SYMBOL, scan_interval=DEFAULT_SCAN_INTERVAL)
-    ]
+    config[CONF_SYMBOLS] = [SymbolDefinition(TEST_SYMBOL, scan_interval=DEFAULT_SCAN_INTERVAL)]
 
-    hass.data = {
-        DOMAIN: {
-            HASS_DATA_COORDINATORS: mock_coordinators,
-            HASS_DATA_CONFIG: config,
-        }
+    hass.data[DOMAIN] = {
+        HASS_DATA_COORDINATORS: mock_coordinators,
+        HASS_DATA_CONFIG: config,
     }
 
-    await async_setup_platform(hass, None, async_add_entities, None)
+    await async_setup_platform(hass, {}, async_add_entities, None)
     assert async_add_entities.called
 
 
@@ -169,10 +158,7 @@ def test_sensor_creation(
     expected_market_price,
 ) -> None:
     """Test sensor status based on the expected_market_price."""
-
-    mock_coordinator = build_mock_coordinator(
-        hass, last_update_success, symbol, market_price
-    )
+    mock_coordinator = build_mock_coordinator(hass, last_update_success, symbol, market_price)
 
     sensor = YahooFinanceSensor(
         hass, mock_coordinator, SymbolDefinition(symbol), DEFAULT_OPTIONAL_CONFIG
@@ -188,6 +174,7 @@ def test_sensor_creation(
     assert sensor.name == f"Symbol {symbol}"
 
     attributes = sensor.extra_state_attributes
+    assert attributes is not None
     # Sensor would be trending up because _previous_close is 0.
     assert attributes[ATTR_TRENDING] == "up"
 
@@ -223,16 +210,13 @@ def test_sensor_decimal_placs(
     hass: HomeAssistant, market_price, decimal_places, expected_market_price
 ) -> None:
     """Tests numeric value rounding."""
-
     symbol = "XYZ"
     mock_coordinator = build_mock_coordinator(hass, True, symbol, market_price)
 
     config = copy.deepcopy(DEFAULT_OPTIONAL_CONFIG)
     config[CONF_DECIMAL_PLACES] = decimal_places
 
-    sensor = YahooFinanceSensor(
-        hass, mock_coordinator, SymbolDefinition(symbol), config
-    )
+    sensor = YahooFinanceSensor(hass, mock_coordinator, SymbolDefinition(symbol), config)
 
     sensor.update_properties()
 
@@ -242,17 +226,12 @@ def test_sensor_decimal_placs(
     assert sensor.state == expected_market_price
 
 
-@pytest.mark.parametrize(
-    ("last_update_success", "symbol", "market_price"), [(True, "XYZ", 12)]
-)
+@pytest.mark.parametrize(("last_update_success", "symbol", "market_price"), [(True, "XYZ", 12)])
 def test_sensor_data_when_coordinator_is_missing_symbol_data(
     hass: HomeAssistant, last_update_success, symbol, market_price
 ) -> None:
     """Test sensor status when data coordinator does not have data for that symbol."""
-
-    mock_coordinator = build_mock_coordinator(
-        hass, last_update_success, symbol, market_price
-    )
+    mock_coordinator = build_mock_coordinator(hass, last_update_success, symbol, market_price)
 
     # Create a sensor for some other symbol
     symbol_to_test = "ABC"
@@ -274,7 +253,6 @@ def test_sensor_data_when_coordinator_is_missing_symbol_data(
 
 def test_sensor_data_when_coordinator_returns_none(hass: HomeAssistant) -> None:
     """Test sensor status when data coordinator does not have any data."""
-
     symbol = "XYZ"
     mock_coordinator = Mock(
         data=None,
@@ -297,7 +275,6 @@ def test_sensor_data_when_coordinator_returns_none(hass: HomeAssistant) -> None:
 
 def test_sensor_name_when_short_name_is_symbol(hass: HomeAssistant) -> None:
     """Test sensor status when data coordinator does not have any data."""
-
     symbol = "0P00008F5Y.L"
     long_name = f"Symbol {symbol} Long"
 
@@ -327,7 +304,6 @@ def test_sensor_name_when_short_name_is_symbol(hass: HomeAssistant) -> None:
 
 async def test_sensor_update_calls_coordinator(hass: HomeAssistant) -> None:
     """Test sensor data update."""
-
     symbol = "XYZ"
     mock_coordinator = build_mock_coordinator(hass, True, symbol, None)
     mock_coordinator.async_request_refresh = AsyncMock(return_value=None)
@@ -340,8 +316,7 @@ async def test_sensor_update_calls_coordinator(hass: HomeAssistant) -> None:
 
 
 def test_device_info_exposes_symbol_details() -> None:
-    """Ensure each entity registers a per-symbol device."""
-
+    """Expose metadata for a per-symbol service device."""
     mock_hass = MagicMock()
     mock_hass.states.async_available.return_value = True
 
@@ -358,7 +333,7 @@ def test_device_info_exposes_symbol_details() -> None:
     assert info["identifiers"] == {(DOMAIN, symbol)}
     assert info["configuration_url"] == f"{YAHOO_QUOTE_URL}{symbol}"
     assert info["manufacturer"] == "Yahoo"
-    assert info["name"] == "Yahoo Finance Symbol XYZ Long"
+    assert info["name"] == "Yahoo Finance Symbol XYZ"
 
 
 @pytest.mark.parametrize(
@@ -376,7 +351,6 @@ def test_sensor_trend(
     hass: HomeAssistant, market_price, previous_close, show_trending, expected_trend
 ) -> None:
     """Test sensor trending status."""
-
     symbol = "XYZ"
     mock_coordinator = build_mock_coordinator(hass, True, symbol, market_price)
     mock_coordinator.data[symbol][DATA_REGULAR_MARKET_PREVIOUS_CLOSE] = previous_close
@@ -384,21 +358,22 @@ def test_sensor_trend(
     config = copy.deepcopy(DEFAULT_OPTIONAL_CONFIG)
     config[CONF_SHOW_TRENDING_ICON] = show_trending
 
-    sensor = YahooFinanceSensor(
-        hass, mock_coordinator, SymbolDefinition(symbol), config
-    )
+    sensor = YahooFinanceSensor(hass, mock_coordinator, SymbolDefinition(symbol), config)
 
     sensor.update_properties()
 
     assert sensor.available is True
 
     # ATTR_TRENDING should always reflect the trending status regarding of CONF_SHOW_TRENDING_ICON
-    assert sensor.extra_state_attributes[ATTR_TRENDING] == expected_trend
+    attributes = sensor.extra_state_attributes
+    assert attributes is not None
+    assert attributes[ATTR_TRENDING] == expected_trend
 
     if show_trending:
         assert sensor.icon == f"mdi:trending-{expected_trend}"
     else:
         currency = sensor.unit_of_measurement
+        assert currency is not None
         lower_currency = currency.lower()
         assert sensor.icon == f"mdi:currency-{lower_currency}"
 
@@ -407,7 +382,6 @@ def test_sensor_trending_state_is_not_populate_if_previous_closing_missing(
     hass: HomeAssistant,
 ) -> None:
     """The trending state is None if _previous_close is None for some reason."""
-
     symbol = "XYZ"
     mock_coordinator = build_mock_coordinator(hass, True, symbol, 12)
 
@@ -417,19 +391,20 @@ def test_sensor_trending_state_is_not_populate_if_previous_closing_missing(
     config = copy.deepcopy(DEFAULT_OPTIONAL_CONFIG)
     config[CONF_SHOW_TRENDING_ICON] = True
 
-    sensor = YahooFinanceSensor(
-        hass, mock_coordinator, SymbolDefinition(symbol), config
-    )
+    sensor = YahooFinanceSensor(hass, mock_coordinator, SymbolDefinition(symbol), config)
 
     sensor.update_properties()
 
     assert sensor.available is True
 
     # ATTR_TRENDING should always reflect the trending status regarding of CONF_SHOW_TRENDING_ICON
-    assert (ATTR_TRENDING in sensor.extra_state_attributes) is False
+    attributes = sensor.extra_state_attributes
+    assert attributes is not None
+    assert ATTR_TRENDING not in attributes
 
     # icon is based on the currency
     currency = sensor.unit_of_measurement
+    assert currency is not None
     lower_currency = currency.lower()
     assert sensor.icon == f"mdi:currency-{lower_currency}"
 
@@ -438,14 +413,16 @@ async def test_data_from_json(
     hass: HomeAssistant, multiple_sample_data, mocked_crumb_coordinator
 ) -> None:
     """Tests data update from json."""
-
     symbols, json_data = multiple_sample_data
     coordinator = YahooSymbolUpdateCoordinator(
-        symbols, hass, DEFAULT_SCAN_INTERVAL, mocked_crumb_coordinator, SESSION
+        symbols,
+        hass,
+        DEFAULT_SCAN_INTERVAL,
+        mocked_crumb_coordinator,
+        async_get_clientsession(hass),
     )
-    coordinator.get_json = AsyncMock(return_value=json_data)
-
-    await coordinator.async_refresh()
+    with patch.object(coordinator, "get_json", AsyncMock(return_value=json_data)):
+        await coordinator.async_refresh()
     await hass.async_block_till_done()
 
     sensors = []
@@ -460,6 +437,7 @@ async def test_data_from_json(
         assert sensor.available is True
 
         attributes = sensor.extra_state_attributes
+        assert attributes is not None
 
         assert sensor.state is not None
         assert attributes["regularMarketChange"] is not None
@@ -495,14 +473,16 @@ async def test_optional_data_from_json(
     optional_feature,
 ) -> None:
     """Tests data update of optional feature sets from json."""
-
     symbols, json_data = multiple_sample_data
     coordinator = YahooSymbolUpdateCoordinator(
-        symbols, hass, DEFAULT_SCAN_INTERVAL, mocked_crumb_coordinator, SESSION
+        symbols,
+        hass,
+        DEFAULT_SCAN_INTERVAL,
+        mocked_crumb_coordinator,
+        async_get_clientsession(hass),
     )
-    coordinator.get_json = AsyncMock(return_value=json_data)
-
-    await coordinator.async_refresh()
+    with patch.object(coordinator, "get_json", AsyncMock(return_value=json_data)):
+        await coordinator.async_refresh()
     await hass.async_block_till_done()
 
     config = copy.deepcopy(DEFAULT_OPTIONAL_CONFIG)
@@ -516,6 +496,7 @@ async def test_optional_data_from_json(
     for sensor in sensors:
         sensor.update_properties()
         attributes = sensor.extra_state_attributes
+        assert attributes is not None
 
         for group_key, group_items in NUMERIC_DATA_GROUPS.items():
             # Data for optional feature should be present
@@ -528,9 +509,9 @@ async def test_optional_data_from_json(
 @pytest.mark.parametrize(
     ("symbol", "expected_market_price"),
     [
-        ('ADYEN', 1396.4),
-        ('Alibaba Group Holding Limited', 121.17),
-        ('Apple Inc.', 231.18),
+        ("ADYEN", 1396.4),
+        ("Alibaba Group Holding Limited", 121.17),
+        ("Apple Inc.", 231.18),
     ],
 )
 async def test_show_off_market(
@@ -541,14 +522,16 @@ async def test_show_off_market(
     expected_market_price,
 ) -> None:
     """Tests data update to show pre/post market prices."""
-
     symbols, json_data = multiple_sample_data
     coordinator = YahooSymbolUpdateCoordinator(
-        symbols, hass, DEFAULT_SCAN_INTERVAL, mocked_crumb_coordinator, SESSION
+        symbols,
+        hass,
+        DEFAULT_SCAN_INTERVAL,
+        mocked_crumb_coordinator,
+        async_get_clientsession(hass),
     )
-    coordinator.get_json = AsyncMock(return_value=json_data)
-
-    await coordinator.async_refresh()
+    with patch.object(coordinator, "get_json", AsyncMock(return_value=json_data)):
+        await coordinator.async_refresh()
     await hass.async_block_till_done()
 
     config = copy.deepcopy(DEFAULT_OPTIONAL_CONFIG)
@@ -562,7 +545,7 @@ async def test_show_off_market(
     for sensor in sensors:
         sensor.update_properties()
         if symbol in sensor.name:
-          assert sensor.state == expected_market_price
+            assert sensor.state == expected_market_price
 
 
 @pytest.mark.parametrize(
@@ -576,11 +559,8 @@ def test_safe_convert(value, conversion, expected) -> None:
 
 def test_conversion(hass: HomeAssistant) -> None:
     """Numeric values get multiplied based on conversion currency."""
-
     symbol = "XYZ"
-    mock_coordinator = build_mock_coordinator_for_conversion(
-        hass, symbol, 12, "USD", "CHF", 1.5
-    )
+    mock_coordinator = build_mock_coordinator_for_conversion(hass, symbol, 12, "USD", "CHF", 1.5)
 
     # Force update _previous_close to None
     mock_coordinator.data[symbol][DATA_REGULAR_MARKET_PREVIOUS_CLOSE] = None
@@ -601,11 +581,8 @@ def test_conversion(hass: HomeAssistant) -> None:
 
 def test_conversion_GBp(hass: HomeAssistant) -> None:
     """Numeric values get multiplied based on conversion currency."""
-
     symbol = "XYZ"
-    mock_coordinator = build_mock_coordinator_for_conversion(
-        hass, symbol, 200, "GBp", "CHF", 1.5
-    )
+    mock_coordinator = build_mock_coordinator_for_conversion(hass, symbol, 200, "GBp", "CHF", 1.5)
 
     # Force update _previous_close to None
     mock_coordinator.data[symbol][DATA_REGULAR_MARKET_PREVIOUS_CLOSE] = None
@@ -628,7 +605,6 @@ def test_conversion_requests_additional_data_from_coordinator(
     hass: HomeAssistant,
 ) -> None:
     """Numeric values get multiplied based on conversion currency."""
-
     symbol = "XYZ"
     mock_coordinator = build_mock_coordinator(hass, True, symbol, 12)
 
@@ -654,7 +630,6 @@ def test_conversion_requests_additional_data_from_coordinator(
 
 def test_conversion_not_attempted_if_target_currency_same(hass: HomeAssistant) -> None:
     """No conversion is attempted if target curency is the same as symbol currency."""
-
     symbol = "XYZ"
     mock_coordinator = build_mock_coordinator(hass, True, symbol, 12)
 
@@ -693,11 +668,23 @@ def test_conversion_not_attempted_if_target_currency_same(hass: HomeAssistant) -
         (0, "datetime", 0),
     ],
 )
-def test_convert_timestamp_to_datetime(
-    epoch_date, return_format, expected_datetime
-) -> None:
+def test_convert_timestamp_to_datetime(epoch_date, return_format, expected_datetime) -> None:
     """Test converting Epoch times to datetime and return date or datetime based on return format."""
     assert (
         YahooFinanceSensor.convert_timestamp_to_datetime(epoch_date, return_format)
         == expected_datetime
     )
+
+
+def test_missing_conversion_price_stays_unavailable(hass: HomeAssistant) -> None:
+    """Keep a sensor unavailable until its conversion quote has a price."""
+    coordinator = build_mock_coordinator_for_conversion(hass, "XYZ", 12, "USD", "CHF", None)
+    install_coordinator(hass, coordinator)
+    sensor = YahooFinanceSensor(
+        hass, coordinator, SymbolDefinition("XYZ", target_currency="CHF"), DEFAULT_OPTIONAL_CONFIG
+    )
+    assert not sensor.available
+    coordinator.data["USDCHF=X"][DATA_REGULAR_MARKET_PRICE] = 1.5
+    sensor.update_properties()
+    assert sensor.available
+    assert sensor.native_value == 18

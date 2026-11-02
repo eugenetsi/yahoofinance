@@ -274,3 +274,49 @@ yahoofinance:
 - As of version [1.1.0](https://github.com/iprak/yahoofinance/releases/), the entity id has changed from `yahoofinance.symbol` to `sensor.yahoofinance_symbol`.
 - As of version 1.0.0, all the configuration is now under `yahoofinance`. If you are upgrading from an older version, then you would need to adjust the configuration.
 - As of version 1.0.1, the minimum `scan_interval` is 30 seconds.
+
+## Devices and YAML configuration
+
+The integration imports the existing `yahoofinance:` YAML settings into one config
+entry. YAML remains the source for configuration changes. Symbol unique IDs and
+entity IDs remain unchanged. Home Assistant retains custom entity names and icons.
+
+1. Install the integration files.
+2. Restart Home Assistant.
+3. Open **Settings → Devices & services → Devices**.
+4. Filter the list by **Yahoo Finance**.
+5. Open a ticker service device.
+6. Check its sensor value.
+7. Select **Visit** to open its Yahoo Finance quote page.
+
+Each enabled ticker sensor has a service device. The entity settings also contain
+a link to that device. Quote availability depends on Yahoo Finance.
+
+Use `yahoofinance.refresh_symbols` to refresh quotes. Edit `configuration.yaml` to
+change symbols or options. Run `yahoofinance.reload` to apply these changes.
+Alternatively, restart Home Assistant. Reload retains the registry settings for
+unchanged tickers. It removes deleted tickers and stops the old polling tasks.
+Home Assistant retries setup if Yahoo cannot provide a session crumb.
+
+Remove the whole YAML section to stop using the integration. Run
+`yahoofinance.reload` to remove the imported entry. Without this action, Home
+Assistant retains the last imported settings.
+
+## Validation
+
+Use Python 3.13 with Home Assistant 2025.12.4 for the verified test environment.
+
+```bash
+python3.13 -m venv .venv
+source .venv/bin/activate
+python -m pip install -r requirements-dev.txt
+python -m ruff check .
+python -m ruff format --check .
+python -m mypy
+python -m pytest -q
+```
+
+The Ruff and mypy scopes contain the device and config-entry modules, constants,
+sensor tests, config-entry integration tests, and test package initialization.
+Other legacy modules remain outside these scopes.
+The tests use fixture quotes and do not require access to Yahoo Finance.

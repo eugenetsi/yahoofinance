@@ -1,0 +1,5 @@
+homeassistant==2025.12.4
+pytest-homeassistant-custom-component==0.13.301
+litellm==1.80.0
+ruff==0.17.3
+mypy==2.4.1

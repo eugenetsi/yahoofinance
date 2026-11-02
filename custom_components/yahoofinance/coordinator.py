@@ -376,7 +376,7 @@ class YahooSymbolUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self,
         symbols: list[str],
         hass: HomeAssistant,
-        update_interval: timedelta,
+        update_interval: str | timedelta | None,
         cc: CrumbCoordinator,
         webSession: aiohttp.ClientSession,
     ) -> None:
